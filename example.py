@@ -2,11 +2,12 @@ import logging
 import configparser
 import os
 import sys
-from renogybt import DCChargerClient, InverterClient, RoverClient, RoverHistoryClient, BatteryClient, DataLogger, Utils
+
+from renogybt import InverterClient, RoverClient, RoverHistoryClient, BatteryClient, DataLogger, Utils
 
 logging.basicConfig(level=logging.INFO)
 
-config_file = sys.argv[1] if len(sys.argv) > 1 else 'config.ini'
+config_file = 'config.ini' #sys.argv[1] if len(sys.argv) > 1 else 'config.ini'
 config_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), config_file)
 config = configparser.ConfigParser(inline_comment_prefixes=('#'))
 config.read(config_path)
@@ -15,10 +16,14 @@ data_logger: DataLogger = DataLogger(config)
 # the callback func when you receive data
 def on_data_received(client, data):
     filtered_data = Utils.filter_fields(data, config['data']['fields'])
+    if 'device_info' not in filtered_data:
+        logging.info("Skipping MQTT: no device_info yet")
+        return    
     logging.info(f"{client.ble_manager.device.name} => {filtered_data}")
     if config['remote_logging'].getboolean('enabled'):
         data_logger.log_remote(json_data=filtered_data)
     if config['mqtt'].getboolean('enabled'):
+        data_logger.create_mqtt(json_data=filtered_data)
         data_logger.log_mqtt(json_data=filtered_data)
     if config['pvoutput'].getboolean('enabled') and config['device']['type'] == 'RNG_CTRL':
         data_logger.log_pvoutput(json_data=filtered_data)
@@ -38,7 +43,5 @@ elif config['device']['type'] == 'RNG_BATT':
     BatteryClient(config, on_data_received, on_error).start()
 elif config['device']['type'] == 'RNG_INVT':
     InverterClient(config, on_data_received, on_error).start()
-elif config['device']['type'] == 'RNG_DCC':
-    DCChargerClient(config, on_data_received, on_error).start()
 else:
     logging.error("unknown device type")
